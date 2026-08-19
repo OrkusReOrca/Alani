@@ -1,0 +1,9 @@
+openwakeword
+faster-whisper
+ollama
+chatterbox-tts
+sounddevice
+numpy
+python-dotenv
+requests
+websockets

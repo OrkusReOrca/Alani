@@ -1,0 +1,26 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Secrets
+.env
+
+# Local model caches (large binary files, downloaded on demand)
+models/
+*.onnx
+*.pt
+*.bin
+*.gguf
+
+# Node / Electron
+frontend/node_modules/
+frontend/dist/
+frontend/out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

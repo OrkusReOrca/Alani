@@ -1,0 +1,45 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: "Segoe UI", sans-serif;
+  -webkit-app-region: drag; /* whole widget is draggable since it has no title bar */
+  user-select: none;
+}
+
+#scene {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#status {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 8px;
+  text-align: center;
+  font-size: 13px;
+  color: #333;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+}
+
+#transcript {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  font-size: 13px;
+  color: #111;
+  line-height: 1.3;
+  max-height: 55%;
+  overflow: hidden;
+}
+
+#transcript .reply {
+  color: #d97b3f;
+  font-weight: 600;
+}
