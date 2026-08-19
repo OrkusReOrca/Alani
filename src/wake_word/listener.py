@@ -51,10 +51,15 @@ def _load_model():
     return Model(wakeword_models=[FALLBACK_WAKE_WORD], inference_framework="onnx")
 
 
-def listen_for_wake_word(on_detected) -> None:
-    """Runs until settings.power_on becomes False."""
+def listen_for_wake_word(on_detected, on_ready=None) -> None:
+    """Runs until settings.power_on becomes False. `on_ready`, if given,
+    fires once right after the (slow, few-second) model load finishes —
+    lets main.py tell the UI "actually listening now" instead of claiming
+    it the instant the process starts."""
     model = _load_model()
     wakeword_name = list(model.models.keys())[0]
+    if on_ready:
+        on_ready()
 
     while settings.get("power_on"):
         if settings.get("sleep_mode"):

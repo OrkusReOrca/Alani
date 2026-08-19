@@ -21,6 +21,19 @@ def roll_dice(sides: int = 6, count: int = 1) -> str:
     return f"Rolled {rolls} (d{sides}), total {sum(rolls)}."
 
 
+def draw_cards(count: int = 1) -> str:
+    """Draws from a standard 52-card deck, no replacement (like a real
+    hand — won't repeat a card within the same draw)."""
+    count = max(1, min(int(count), 10))
+    ranks = ["Ace", "2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King"]
+    suits = ["Hearts", "Diamonds", "Clubs", "Spades"]
+    deck = [f"{rank} of {suit}" for rank in ranks for suit in suits]
+    cards = random.sample(deck, count)
+    if count == 1:
+        return f"Drew the {cards[0]}."
+    return "Drew: " + ", ".join(cards) + "."
+
+
 def get_current_time() -> str:
     return datetime.now().strftime("It's %I:%M %p on %A, %B %d.")
 
@@ -79,6 +92,19 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "draw_cards",
+            "description": "Draw one or more random playing cards from a standard 52-card deck (no repeats within the draw).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "count": {"type": "integer", "description": "Number of cards to draw (default 1)"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_current_time",
             "description": "Get the current local date and time.",
             "parameters": {"type": "object", "properties": {}},
@@ -122,6 +148,7 @@ TOOL_SCHEMAS = [
 
 TOOL_FUNCTIONS = {
     "roll_dice": roll_dice,
+    "draw_cards": draw_cards,
     "get_current_time": get_current_time,
     "get_weather": get_weather,
     "trigger_alani_bot_workflow": trigger_alani_bot_workflow,

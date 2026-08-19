@@ -10,7 +10,7 @@ import numpy as np
 import sounddevice as sd
 from chatterbox.tts import ChatterboxTTS
 
-from . import settings
+from . import settings, ui_bridge
 
 _model = None
 
@@ -39,8 +39,20 @@ def speak(text: str) -> None:
 
     def callback(outdata, frames, time_info, status):
         nonlocal position
+        if not settings.get("power_on"):
+            # Instant mid-speech cutoff — see main.py/methodology log.
+            outdata[:, 0] = 0
+            raise sd.CallbackStop()
+
         chunk = audio[position : position + frames]
         volume = float(settings.get("volume"))
+
+        # Real output level (not the volume setting — that's loudness, this
+        # is speech dynamics) so the frontend's "A" glyph pulse can track
+        # what Alani is actually saying instead of a synthetic rhythm.
+        if len(chunk):
+            ui_bridge.broadcast_amplitude(float(np.sqrt(np.mean(chunk**2))))
+
         if len(chunk) < frames:
             outdata[: len(chunk), 0] = chunk * volume
             outdata[len(chunk) :, 0] = 0

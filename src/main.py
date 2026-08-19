@@ -40,19 +40,45 @@ def on_wake():
     turns = 0
     while turns < MAX_TURNS_PER_SESSION and run_turn(conversation):
         turns += 1
+        if settings.get("sleep_mode"):
+            print("[sleep mode] finishing this turn, then going idle")
+            break
     if turns >= MAX_TURNS_PER_SESSION:
         print(f"[safety] hit the {MAX_TURNS_PER_SESSION}-turn cap for one session, ending it")
     print("[back to idle]")
-    ui_bridge.broadcast("done")
+
+    # Skip the "done" flourish if power was cut — the UI already jumped
+    # straight to gray/idle the instant the power button was pressed
+    # (see ui_bridge/app.js), so a heart-then-idle transition here would
+    # be a confusing extra beat rather than the "instantly cut off" the
+    # power button promises.
+    if settings.get("power_on"):
+        ui_bridge.broadcast("done")
+
+
+def _on_listener_ready():
+    # Fires once the wake-word model has actually finished loading (a few
+    # real seconds) — only then is "idle" (implying "already listening")
+    # accurate. See ui_bridge/app.js's "starting" state.
+    print("[wake word] ready")
+    ui_bridge.broadcast("idle")
 
 
 def _start_listener_thread():
-    threading.Thread(target=listen_for_wake_word, args=(on_wake,), daemon=True).start()
+    threading.Thread(
+        target=listen_for_wake_word, args=(on_wake,), kwargs={"on_ready": _on_listener_ready}, daemon=True
+    ).start()
 
 
 @ui_bridge.on_command("set_volume")
 def _on_set_volume(msg):
     settings.set("volume", float(msg["value"]))
+    ui_bridge.broadcast_settings()
+
+
+@ui_bridge.on_command("set_text_size")
+def _on_set_text_size(msg):
+    settings.set("text_size", int(msg["value"]))
     ui_bridge.broadcast_settings()
 
 
@@ -65,6 +91,14 @@ def _on_set_input_device(msg):
 @ui_bridge.on_command("set_output_device")
 def _on_set_output_device(msg):
     settings.set("output_device", msg["value"])
+    ui_bridge.broadcast_settings()
+
+
+@ui_bridge.on_command("toggle_tts")
+def _on_toggle_tts(msg):
+    new_value = not settings.get("tts_enabled")
+    settings.set("tts_enabled", new_value)
+    print(f"[tts] {'on' if new_value else 'off'}")
     ui_bridge.broadcast_settings()
 
 
@@ -88,12 +122,13 @@ def _on_toggle_power(msg):
 
 if __name__ == "__main__":
     ui_bridge.start()
-    ui_bridge.broadcast("idle")
+    ui_bridge.broadcast("starting")
 
     if settings.get("power_on"):
         _start_listener_thread()
     else:
         print("[power] starting powered off (per saved settings)")
+        ui_bridge.broadcast("idle")  # nothing else to wait for
 
     # Keep the process alive — the actual work happens in the listener
     # thread(s), which start/stop dynamically as power is toggled.

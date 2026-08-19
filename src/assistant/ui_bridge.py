@@ -17,6 +17,7 @@ from . import settings
 _clients = set()
 _loop = None
 _command_handlers = {}
+_last_state = None  # see broadcast()/_send_initial_state()
 
 
 def on_command(msg_type):
@@ -39,6 +40,16 @@ def _device_list():
 async def _send_initial_state(websocket):
     await websocket.send(json.dumps(_device_list()))
     await websocket.send(json.dumps({"type": "settings", **settings.get_all()}))
+    # Without this, a client that connects AFTER a state broadcast already
+    # fired (e.g. the Electron window is still spinning up its WebSocket
+    # when the backend finishes loading and broadcasts "idle") would never
+    # find out — broadcast() is fire-and-forget to whoever's connected
+    # *at that instant*, and there's no guarantee another state change
+    # happens later to correct it. This was the "stuck on Starting up..."
+    # bug: the backend really was ready, but that specific "idle" message
+    # had nowhere to go yet.
+    if _last_state is not None:
+        await websocket.send(json.dumps(_last_state))
 
 
 async def _handler(websocket):
@@ -75,11 +86,21 @@ def start() -> None:
 
 
 def broadcast(state: str, user_text: str = "", reply_text: str = "") -> None:
-    _broadcast_json({"type": "state", "state": state, "user_text": user_text, "reply_text": reply_text})
+    global _last_state
+    _last_state = {"type": "state", "state": state, "user_text": user_text, "reply_text": reply_text}
+    _broadcast_json(_last_state)
 
 
 def broadcast_settings() -> None:
     _broadcast_json({"type": "settings", **settings.get_all()})
+
+
+def broadcast_amplitude(rms: float) -> None:
+    """Fire-and-forget, called from tts.py's audio callback (a
+    non-asyncio thread) once per output block during playback, so the
+    frontend's speaking pulse can track Alani's actual output level
+    instead of a synthetic rhythm."""
+    _broadcast_json({"type": "amplitude", "value": rms})
 
 
 def _broadcast_json(payload: dict) -> None:

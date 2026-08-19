@@ -19,6 +19,8 @@ DEFAULTS = {
     "volume": 1.0,  # 0.0 - 1.5
     "sleep_mode": False,  # True: not listening, near-zero CPU/GPU, still running
     "power_on": True,  # False: wake-word listener fully stopped
+    "text_size": 13,  # px, conversation transcript font size
+    "tts_enabled": True,  # False: skip speaking replies aloud, text-only
 }
 
 _lock = threading.Lock()
