@@ -14,16 +14,10 @@ SAMPLE_RATE = 16000
 FRAME_MS = 30
 FRAME_SAMPLES = int(SAMPLE_RATE * FRAME_MS / 1000)
 
-SILENCE_RMS_THRESHOLD = 0.02
+SILENCE_RMS_THRESHOLD = 0.015
 SILENCE_FRAMES_TO_STOP = int(1.0 * 1000 / FRAME_MS)  # ~1s of quiet ends the turn
 MAX_DURATION_S = 15
-MIN_SPEECH_FRAMES = 8  # ignore brief noise blips before real speech starts
-
-# Overall-clip RMS floor: even if the frame-by-frame gate above let
-# something through (e.g. a brief ambient noise spike), a genuinely quiet
-# clip shouldn't get sent to Whisper at all — this is what was causing the
-# hallucination-loop incident (see stt.py / methodology log).
-CLIP_RMS_FLOOR = 0.015
+MIN_SPEECH_FRAMES = 5  # ignore brief noise blips before real speech starts
 
 
 def record_until_silence() -> np.ndarray:
@@ -52,11 +46,16 @@ def record_until_silence() -> np.ndarray:
             if heard_speech and silence_run >= SILENCE_FRAMES_TO_STOP:
                 break
 
-    if not frames:
+    # Gate on the SAME signal that already decided when to stop recording
+    # (heard_speech), rather than a second, independent absolute-RMS check
+    # on the whole clip. An earlier version added a post-hoc overall-clip
+    # RMS floor as an extra hallucination defense, but that averages in
+    # up to a full second of trailing (and any leading) silence, which
+    # dilutes real-but-short utterances below the floor — that caused a
+    # real "never replies, silently returns to idle" bug. vad_filter +
+    # no_speech_prob in stt.py are the real hallucination defense; this
+    # check is just "did we actually detect speech at all".
+    if not heard_speech or not frames:
         return np.array([], dtype="float32")
 
-    audio = np.concatenate(frames)
-    clip_rms = float(np.sqrt(np.mean(audio**2)))
-    if clip_rms < CLIP_RMS_FLOOR:
-        return np.array([], dtype="float32")
-    return audio
+    return np.concatenate(frames)

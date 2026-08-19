@@ -3,15 +3,14 @@ html, body {
   padding: 0;
   width: 100%;
   height: 100%;
-  background: transparent;
+  background: #f0f0f0;
   overflow: hidden;
   font-family: "Segoe UI", sans-serif;
-  -webkit-app-region: drag; /* whole widget is draggable since it has no title bar */
   user-select: none;
 }
 
 button, input, select, label {
-  -webkit-app-region: no-drag; /* controls themselves shouldn't drag the window */
+  cursor: pointer;
 }
 
 #scene {

@@ -282,13 +282,14 @@ function animate() {
   requestAnimationFrame(animate);
 
   if (mode === "idle" && powerOn) {
-    orbitT += 0.02;
-    const radius = 1.1;
-    starSprite.position.set(
-      Math.cos(orbitT) * radius,
-      Math.sin(orbitT) * radius * 0.4 + 0.5,
-      Math.sin(orbitT) * radius * 0.3
-    );
+    // Vertical loop through the bar — top, then front, then under, then
+    // behind, back to top (NASA-logo-style), bar itself stays still.
+    // y = cos, z = sin: t=0 top, t=90deg front, t=180deg under, t=270deg
+    // behind. WebGL depth-tests the sprite against the bar automatically,
+    // so it's correctly hidden while passing behind.
+    orbitT += 0.025;
+    const radius = 0.85;
+    starSprite.position.set(0, Math.cos(orbitT) * radius, Math.sin(orbitT) * radius);
   } else if (mode !== "idle") {
     // star/hourglass/heart spin slowly once docked in the corner
     spinT += 0.02;
@@ -306,7 +307,6 @@ function animate() {
     aGlyph.scale.set(s, s, s);
   }
 
-  if (mode === "idle" && powerOn) bar.rotation.y += 0.003;
   renderer.render(scene, camera);
 }
 animate();

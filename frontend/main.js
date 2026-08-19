@@ -46,8 +46,8 @@ function createWindow() {
   const win = new BrowserWindow({
     width: WINDOW_SIZE,
     height: WINDOW_SIZE,
-    frame: false,
-    transparent: true,
+    frame: true,
+    backgroundColor: "#f0f0f0",
     alwaysOnTop: true,
     resizable: false,
     skipTaskbar: false,
