@@ -9,6 +9,7 @@ hey_alani.onnx into models/ to switch over automatically.
 """
 
 import numpy as np
+import openwakeword
 import sounddevice as sd
 from openwakeword.model import Model
 
@@ -20,15 +21,21 @@ DETECTION_THRESHOLD = 0.5
 
 
 def _load_model():
+    # tflite_runtime isn't readily pip-installable on Windows, so force the
+    # ONNX inference path explicitly (openWakeWord supports both, but its
+    # bundled pretrained models default to tflite if a framework isn't
+    # named) and make sure the ONNX weights are actually downloaded.
+    openwakeword.utils.download_models()
+
     if CUSTOM_WAKE_WORD_PATH.exists():
         print(f"[wake word] using custom model: {CUSTOM_WAKE_WORD_PATH.name}")
-        return Model(wakeword_models=[str(CUSTOM_WAKE_WORD_PATH)])
+        return Model(wakeword_models=[str(CUSTOM_WAKE_WORD_PATH)], inference_framework="onnx")
     print(
         f"[wake word] no custom 'hey_alani' model found — falling back to "
         f"'{FALLBACK_WAKE_WORD}' for now. Train a real one at "
         f"openwakeword.com/train and drop it at {CUSTOM_WAKE_WORD_PATH}"
     )
-    return Model(wakeword_models=[FALLBACK_WAKE_WORD])
+    return Model(wakeword_models=[FALLBACK_WAKE_WORD], inference_framework="onnx")
 
 
 def listen_for_wake_word(on_detected) -> None:
