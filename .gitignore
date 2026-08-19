@@ -25,5 +25,8 @@ frontend/out/
 .DS_Store
 Thumbs.db
 
+# Machine-local launch shortcut (absolute paths baked in — see README)
+*.lnk
+
 # Logs
 *.log

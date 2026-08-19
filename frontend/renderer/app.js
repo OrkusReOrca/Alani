@@ -30,12 +30,25 @@ const sleepBtnEl = document.getElementById("sleep-btn");
 const powerBtnEl = document.getElementById("power-btn");
 
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-renderer.setSize(220, 220);
 renderer.setPixelRatio(window.devicePixelRatio);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
 camera.position.set(0, 0, 6);
+
+// The window is resizable now (was fixed 220x220) — keep the scene sized
+// to whatever the canvas's CSS box actually is, and keep the bar/star
+// centered regardless of aspect ratio.
+function resizeToCanvas() {
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  if (width === 0 || height === 0) return;
+  renderer.setSize(width, height, false);
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resizeToCanvas);
+resizeToCanvas();
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.7));
 const keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -264,7 +277,7 @@ function connect() {
 connect();
 
 // ---------- UI control wiring ----------
-volumeEl.addEventListener("change", () => send({ type: "set_volume", value: parseFloat(volumeEl.value) }));
+volumeEl.addEventListener("input", () => send({ type: "set_volume", value: parseFloat(volumeEl.value) }));
 inputDeviceEl.addEventListener("change", () => {
   const value = inputDeviceEl.value === "" ? null : parseInt(inputDeviceEl.value, 10);
   send({ type: "set_input_device", value });

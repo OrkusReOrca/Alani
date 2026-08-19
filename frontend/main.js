@@ -1,11 +1,14 @@
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, Menu } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const fs = require("fs");
 
-// Small square, always-on-top, frameless status widget — stays out of the
-// way but is always visible while the assistant is running.
-const WINDOW_SIZE = 220;
+// Small, always-on-top, resizable status widget — stays out of the way
+// but is always visible while the assistant is running.
+const DEFAULT_WIDTH = 300;
+const DEFAULT_HEIGHT = 340;
+const MIN_WIDTH = 200;
+const MIN_HEIGHT = 240;
 
 const REPO_ROOT = path.join(__dirname, "..");
 const BACKEND_PYTHON = path.join(REPO_ROOT, "venv", "Scripts", "python.exe");
@@ -43,14 +46,21 @@ function stopBackend() {
 }
 
 function createWindow() {
+  // No default File/Edit/View/... menu bar — it was eating vertical space
+  // meant for the 3D scene, squishing/off-centering the bar.
+  Menu.setApplicationMenu(null);
+
   const win = new BrowserWindow({
-    width: WINDOW_SIZE,
-    height: WINDOW_SIZE,
+    width: DEFAULT_WIDTH,
+    height: DEFAULT_HEIGHT,
+    minWidth: MIN_WIDTH,
+    minHeight: MIN_HEIGHT,
     frame: true,
     backgroundColor: "#f0f0f0",
     alwaysOnTop: true,
-    resizable: false,
+    resizable: true,
     skipTaskbar: false,
+    autoHideMenuBar: true,
     webPreferences: {
       // Trusted, fully local content only (no remote pages ever loaded in
       // this window) — nodeIntegration is a deliberate, contained choice
