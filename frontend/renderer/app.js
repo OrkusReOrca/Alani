@@ -1,21 +1,33 @@
 // Alani status widget — Three.js scene driven by a small state machine.
-// The Python backend broadcasts state over a local WebSocket
-// (ws://localhost:8765); this file only ever reacts to what it's told.
+// The Python backend broadcasts state/settings/devices over a local
+// WebSocket (ws://localhost:8765) and accepts commands back the same way;
+// this file only ever reacts to what it's told, and never assumes a
+// setting took effect until the backend confirms it via a "settings"
+// message.
 //
 // NOTE on "morphing": true vertex-level morphing between the idle bar and
 // the A glyph would need matched mesh topology between the two shapes,
 // which is a lot of authoring effort for a v1. Instead this uses
 // crossfade (opacity) + position/scale tweening via GSAP, which reads as
-// a smooth morph-like transition without that complexity. Documented as
-// a known fidelity gap in the methodology log — worth revisiting with a
-// real morph-targets approach later if this doesn't feel smooth enough.
+// a smooth morph-like transition without that complexity.
 
-const ACCENT = 0xe8935a;
-const ACCENT_LIGHT = 0xf0b088;
+const THREE = require("three");
+const { gsap } = require("gsap");
+
+const COLOR_ORANGE = 0xe8935a;
+const COLOR_PURPLE = 0x8b5cf6;
+const COLOR_GRAY = 0x9e9e9e;
 
 const canvas = document.getElementById("scene");
 const statusEl = document.getElementById("status");
 const transcriptEl = document.getElementById("transcript");
+const volumeEl = document.getElementById("volume");
+const settingsToggleEl = document.getElementById("settings-toggle");
+const settingsPanelEl = document.getElementById("settings-panel");
+const inputDeviceEl = document.getElementById("input-device");
+const outputDeviceEl = document.getElementById("output-device");
+const sleepBtnEl = document.getElementById("sleep-btn");
+const powerBtnEl = document.getElementById("power-btn");
 
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
 renderer.setSize(220, 220);
@@ -33,14 +45,13 @@ scene.add(keyLight);
 // ---------- Bar (idle) ----------
 const bar = new THREE.Mesh(
   new THREE.BoxGeometry(1.8, 0.4, 0.25),
-  new THREE.MeshStandardMaterial({ color: ACCENT, transparent: true })
+  new THREE.MeshStandardMaterial({ color: COLOR_ORANGE, transparent: true })
 );
 scene.add(bar);
 
 // ---------- "A" glyph (built procedurally so no font asset is needed) ----------
 function buildAShape() {
   const shape = new THREE.Shape();
-  // Outer silhouette of a bold, chunky "A" in a roughly -1..1 box.
   shape.moveTo(-0.08, 1.0);
   shape.lineTo(0.08, 1.0);
   shape.lineTo(0.62, -1.0);
@@ -63,14 +74,13 @@ function buildAShape() {
 
 const aGlyph = new THREE.Mesh(
   new THREE.ExtrudeGeometry(buildAShape(), { depth: 0.18, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02 }),
-  new THREE.MeshStandardMaterial({ color: ACCENT, transparent: true })
+  new THREE.MeshStandardMaterial({ color: COLOR_ORANGE, transparent: true })
 );
 aGlyph.visible = false;
 aGlyph.material.opacity = 0;
 scene.add(aGlyph);
 
-// ---------- Star / hourglass / heart — emoji sprites (simplest path to a
-// decent-looking icon without modeling/importing 3D assets) ----------
+// ---------- Star / hourglass / heart — emoji sprites ----------
 function makeEmojiSprite(emoji) {
   const size = 128;
   const c = document.createElement("canvas");
@@ -100,9 +110,8 @@ let mode = "idle"; // idle | listening_big | listening | speaking | loading | do
 let orbitT = 0;
 let spinT = 0;
 let pulseT = 0;
-
-const CORNER = { x: 0.55, y: -0.55, z: 0 };
-const CENTER = { x: 0, y: 0, z: 0 };
+let powerOn = true;
+let sleepMode = false;
 
 function setStatus(text) {
   statusEl.textContent = text;
@@ -115,17 +124,24 @@ function setTranscript(userText, replyText) {
   transcriptEl.innerHTML = html;
 }
 
+function currentBarColor() {
+  if (!powerOn) return COLOR_GRAY;
+  if (sleepMode) return COLOR_PURPLE;
+  return COLOR_ORANGE;
+}
+
 function goIdle() {
   mode = "idle";
-  setStatus("Standing by...");
+  setStatus(!powerOn ? "Powered off" : sleepMode ? "Sleeping..." : "Standing by...");
   setTranscript("", "");
+  bar.material.color.set(currentBarColor());
   gsap.to(bar.material, { opacity: 1, duration: 0.6 });
   bar.visible = true;
   gsap.to(aGlyph.material, { opacity: 0, duration: 0.5, onComplete: () => (aGlyph.visible = false) });
   gsap.to(starSprite.scale, { x: 0.55, y: 0.55, duration: 0.6 });
   hourglassSprite.visible = false;
   heartSprite.visible = false;
-  starSprite.visible = true;
+  starSprite.visible = powerOn; // frozen/hidden while powered off — see animate()
 }
 
 function goListeningBig() {
@@ -133,12 +149,12 @@ function goListeningBig() {
   setStatus("Listening...");
   bar.visible = true;
   gsap.to(bar.material, { opacity: 0, duration: 0.4, onComplete: () => (bar.visible = false) });
+  aGlyph.material.color.set(COLOR_ORANGE);
   aGlyph.visible = true;
   aGlyph.scale.set(1.3, 1.3, 1.3);
-  aGlyph.position.set(CENTER.x, CENTER.y, CENTER.z);
+  aGlyph.position.set(0, 0, 0);
   gsap.to(aGlyph.material, { opacity: 1, duration: 0.5 });
   gsap.to(aGlyph.scale, { x: 1, y: 1, z: 1, duration: 0.6, ease: "back.out(1.7)" });
-  // star docks to the corner and will spin there from now on
   gsap.to(starSprite.position, { x: 1.15, y: 1.15, z: 0, duration: 0.6 });
   gsap.to(starSprite.scale, { x: 0.32, y: 0.32, duration: 0.6 });
   hourglassSprite.visible = false;
@@ -195,12 +211,50 @@ function applyServerState(msg) {
   }
 }
 
+function applySettings(s) {
+  powerOn = s.power_on;
+  sleepMode = s.sleep_mode;
+
+  volumeEl.value = s.volume;
+  if (inputDeviceEl.dataset.loaded) inputDeviceEl.value = s.input_device ?? "";
+  if (outputDeviceEl.dataset.loaded) outputDeviceEl.value = s.output_device ?? "";
+
+  sleepBtnEl.classList.toggle("active", sleepMode);
+  powerBtnEl.classList.toggle("off", !powerOn);
+
+  if (mode === "idle") goIdle(); // re-color the bar / update status text immediately
+}
+
+function applyDevices(msg) {
+  const fillSelect = (el, devices) => {
+    el.innerHTML = '<option value="">System default</option>';
+    for (const d of devices) {
+      const opt = document.createElement("option");
+      opt.value = d.index;
+      opt.textContent = d.name;
+      el.appendChild(opt);
+    }
+    el.dataset.loaded = "1";
+  };
+  fillSelect(inputDeviceEl, msg.inputs);
+  fillSelect(outputDeviceEl, msg.outputs);
+}
+
 // ---------- WebSocket (backend connection) ----------
+let ws = null;
+
+function send(payload) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+}
+
 function connect() {
-  const ws = new WebSocket("ws://localhost:8765");
+  ws = new WebSocket("ws://localhost:8765");
   ws.onmessage = (event) => {
     try {
-      applyServerState(JSON.parse(event.data));
+      const msg = JSON.parse(event.data);
+      if (msg.type === "state") applyServerState(msg);
+      else if (msg.type === "settings") applySettings(msg);
+      else if (msg.type === "devices") applyDevices(msg);
     } catch (e) {
       console.error("bad message from backend", e);
     }
@@ -209,11 +263,25 @@ function connect() {
 }
 connect();
 
+// ---------- UI control wiring ----------
+volumeEl.addEventListener("change", () => send({ type: "set_volume", value: parseFloat(volumeEl.value) }));
+inputDeviceEl.addEventListener("change", () => {
+  const value = inputDeviceEl.value === "" ? null : parseInt(inputDeviceEl.value, 10);
+  send({ type: "set_input_device", value });
+});
+outputDeviceEl.addEventListener("change", () => {
+  const value = outputDeviceEl.value === "" ? null : parseInt(outputDeviceEl.value, 10);
+  send({ type: "set_output_device", value });
+});
+settingsToggleEl.addEventListener("click", () => settingsPanelEl.classList.toggle("hidden"));
+sleepBtnEl.addEventListener("click", () => send({ type: "toggle_sleep" }));
+powerBtnEl.addEventListener("click", () => send({ type: "toggle_power" }));
+
 // ---------- Animation loop ----------
 function animate() {
   requestAnimationFrame(animate);
 
-  if (mode === "idle") {
+  if (mode === "idle" && powerOn) {
     orbitT += 0.02;
     const radius = 1.1;
     starSprite.position.set(
@@ -221,12 +289,13 @@ function animate() {
       Math.sin(orbitT) * radius * 0.4 + 0.5,
       Math.sin(orbitT) * radius * 0.3
     );
-  } else {
+  } else if (mode !== "idle") {
     // star/hourglass/heart spin slowly once docked in the corner
     spinT += 0.02;
     const activeSprite = starSprite.visible ? starSprite : hourglassSprite.visible ? hourglassSprite : heartSprite;
     activeSprite.material.rotation = spinT;
   }
+  // powered off + idle: star frozen/hidden, bar gray, nothing animates — intentional
 
   if (mode === "speaking") {
     // synthetic speech-rhythm pulse (proxy for real TTS amplitude — see
@@ -237,7 +306,7 @@ function animate() {
     aGlyph.scale.set(s, s, s);
   }
 
-  bar.rotation.y += 0.003;
+  if (mode === "idle" && powerOn) bar.rotation.y += 0.003;
   renderer.render(scene, camera);
 }
 animate();

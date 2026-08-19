@@ -8,6 +8,8 @@ import numpy as np
 import sounddevice as sd
 from chatterbox.tts import ChatterboxTTS
 
+from . import settings
+
 _model = None
 
 
@@ -24,5 +26,11 @@ def speak(text: str) -> None:
     model = _get_model()
     wav = model.generate(text)
     audio = wav.squeeze().cpu().numpy().astype(np.float32)
-    sd.play(audio, samplerate=model.sr)
+
+    volume = float(settings.get("volume"))
+    if volume != 1.0:
+        audio = audio * volume
+
+    device = settings.get("output_device")
+    sd.play(audio, samplerate=model.sr, device=device)
     sd.wait()
