@@ -9,7 +9,7 @@ import json
 import threading
 from pathlib import Path
 
-from .config import REPO_ROOT
+from .config import ACTIVE_VOICE_NAME, REPO_ROOT
 
 SETTINGS_PATH = REPO_ROOT / "data" / "settings.json"
 
@@ -21,6 +21,9 @@ DEFAULTS = {
     "power_on": True,  # False: wake-word listener fully stopped
     "text_size": 13,  # px, conversation transcript font size
     "tts_enabled": True,  # False: skip speaking replies aloud, text-only
+    "voice_name": ACTIVE_VOICE_NAME,  # "default" or a config.VOICES key — see tts.py
+    "reading_mode": False,  # True: turns wait for typed text instead of recording audio
+    "echo_mode": False,  # True: skip the LLM, reply is just whatever the user said
 }
 
 _lock = threading.Lock()

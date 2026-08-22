@@ -38,8 +38,28 @@ button, input, select, label {
   font-size: 13px;
   color: #111;
   line-height: 1.3;
-  max-height: 40%;
-  overflow: hidden;
+  /* max-height set from JS (updateTranscriptHeight() in app.js) — caps
+     it just above the docked A glyph in the bottom-right corner (exact
+     position depends on the window's current pixel size). Deliberately
+     max-height, not height: this is a real DOM element sitting on top
+     of the canvas underneath it, and a fixed height would reserve (and
+     intercept clicks over) that whole box even with no text in it —
+     max-height instead shrinks to fit actual content, so it doesn't
+     swallow clicks meant for the idle bar when there's nothing to show. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(217, 123, 63, 0.5) transparent;
+}
+#transcript::-webkit-scrollbar {
+  width: 6px;
+}
+#transcript::-webkit-scrollbar-track {
+  background: transparent;
+}
+#transcript::-webkit-scrollbar-thumb {
+  background: rgba(217, 123, 63, 0.5);
+  border-radius: 3px;
 }
 
 /* Reserves space for the star/hourglass/heart in the top-right corner so
@@ -142,6 +162,49 @@ button, input, select, label {
   width: 100%;
 }
 
+/* ---------- Reading-mode toggle: "I", Times New Roman, top-left under
+   the settings gear. Gray = voice input (default), green = typed input. */
+#reading-toggle-btn {
+  position: absolute;
+  top: 30px;
+  left: 6px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  font-family: "Times New Roman", Times, serif;
+  font-weight: bold;
+  font-size: 13px;
+  color: #fff;
+  background: #9e9e9e;
+  cursor: pointer;
+  z-index: 7; /* above #settings-panel so it's still reachable while that's open */
+}
+#reading-toggle-btn.active {
+  background: #4caf50;
+}
+
+/* ---------- Reading-mode input: sits where #status normally shows text,
+   so typed characters appear "in the loading spot" as they're typed. ---------- */
+#reading-input {
+  position: absolute;
+  left: 15%;
+  right: 15%;
+  bottom: 6px;
+  text-align: center;
+  font-size: 13px;
+  font-family: inherit;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #886644;
+  color: #333;
+  outline: none;
+  z-index: 5;
+}
+#reading-input.hidden {
+  display: none;
+}
+
 /* ---------- Bottom-left: sleep (Z) + power buttons ---------- */
 #bottom-left-controls {
   position: absolute;
@@ -192,4 +255,183 @@ button, input, select, label {
 }
 #tts-btn.off {
   background: #d64545;
+}
+
+/* echo mode (parrot): gray = off (default), green = on */
+#echo-btn {
+  background: #9e9e9e;
+  color: #fff;
+  font-size: 12px;
+}
+#echo-btn.active {
+  background: #4caf50;
+}
+
+/* ---------- "console add" — manual reminder/event entry ----------
+   Trigger button only ever shown while idle (app.js's applyServerState()
+   toggles it); the overlay itself only shown during the "console_add"
+   state. */
+#console-add-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: #e8935a;
+  color: #fff;
+  font-size: 26px;
+  line-height: 40px;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  z-index: 6;
+}
+#console-add-btn:hover {
+  background: #d97b3f;
+}
+#console-add-btn.hidden {
+  display: none;
+}
+
+#console-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(240, 240, 240, 0.97);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#console-overlay.hidden {
+  display: none;
+}
+
+/* Always present regardless of which .console-page is showing, so
+   there's always a way back to idle from anywhere in this UI. */
+#console-close-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.08);
+  color: #333;
+  font-size: 16px;
+  cursor: pointer;
+  z-index: 11;
+}
+#console-close-btn:hover {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.console-page {
+  width: 100%;
+  max-width: 320px;
+  padding: 24px;
+  box-sizing: border-box;
+}
+.console-page.hidden {
+  display: none;
+}
+.console-page h2 {
+  margin: 4px 0 16px;
+  font-size: 16px;
+  color: #333;
+  text-align: center;
+}
+
+#console-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.console-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 12px;
+  border: none;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  color: #333;
+  font-size: 13px;
+  cursor: pointer;
+}
+.console-tile:hover {
+  background: #fff3ea;
+}
+.console-tile-icon {
+  font-size: 28px;
+}
+
+.console-back {
+  border: none;
+  background: transparent;
+  color: #886644;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 0 12px;
+  display: block;
+}
+
+#console-form-reminder,
+#console-form-event {
+  display: flex;
+  flex-direction: column;
+}
+.console-page label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #555;
+  margin-bottom: 12px;
+}
+.console-page.hidden label {
+  display: none;
+}
+.console-checkbox-row {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px !important;
+}
+.console-page input[type="text"],
+.console-page input[type="datetime-local"],
+.console-page select {
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-family: inherit;
+}
+.console-page button[type="submit"] {
+  margin-top: 4px;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  background: #e8935a;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.console-page button[type="submit"]:hover {
+  background: #d97b3f;
+}
+.console-status {
+  margin-top: 10px;
+  font-size: 12px;
+  text-align: center;
+  min-height: 1.2em;
+}
+.console-status.success {
+  color: #2e7d32;
+}
+.console-status.error {
+  color: #c62828;
 }

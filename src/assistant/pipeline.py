@@ -10,6 +10,22 @@ playback starts) isn't interruptible mid-computation — a power-off press
 during that specific window finishes generating before the callback-level
 check in tts.py can stop it. Accepted as a reasonable limitation rather
 than adding real complexity (cancellable GPU work) for a sub-second window.
+
+The UI's "force idle" click (top-right icon) uses the exact same checks,
+via ui_bridge.is_interrupt_active() — same instant-cutoff points, same
+non-interruptible-mid-call gap. It's a separate flag from power_on because
+it doesn't stop the wake-word listener, just the current turn; see
+main.py's on_command("force_idle") and on_wake().
+
+Two settings change what a turn actually does, checked fresh at the top
+of each one (not cached per-session) so toggling mid-conversation takes
+effect starting the very next turn:
+  - reading_mode: waits for typed text (ui_bridge.wait_for_text_input())
+    instead of recording+transcribing audio. Everything after that point
+    (thinking, speaking) is unchanged — only the input step differs.
+  - echo_mode: skips conversation.send() entirely — the reply is just
+    whatever the user said, not added to conversation history either
+    (it's a mic/TTS mirror, not a real exchange).
 """
 
 import time
@@ -31,32 +47,57 @@ def _pace_reading(text: str) -> None:
     pause."""
     remaining = min(MAX_READ_PAUSE_S, max(MIN_READ_PAUSE_S, len(text) / READ_CHARS_PER_SEC))
     step = 0.1
-    while remaining > 0 and settings.get("power_on"):
+    while remaining > 0 and settings.get("power_on") and not ui_bridge.is_interrupt_active():
         time.sleep(step)
         remaining -= step
 
 
-def run_turn(conversation: Conversation) -> bool:
+def run_turn(conversation: Conversation, is_first_turn: bool = False) -> bool:
     """Records and handles one user utterance. Returns False if the
     session should end (nothing was said, the user signaled they're done,
-    or power was turned off mid-turn), True to keep listening."""
-    print("[listening]")
-    ui_bridge.broadcast("listening")
-    audio = record.record_until_silence()
-    if not settings.get("power_on") or audio.size == 0:
-        return False
+    or power was turned off mid-turn), True to keep listening.
 
-    print("[transcribing]")
-    user_text = stt.transcribe(audio)
-    if not settings.get("power_on") or not user_text:
-        return False
+    is_first_turn: the turn immediately after waking up. An end phrase
+    here skips the LLM/TTS entirely and goes straight back to idle — an
+    accidental wake (false-positive wake word) or an immediate change of
+    mind ("stop", "nevermind" right after waking) shouldn't cost a full
+    LLM round-trip and a spoken reply just to say goodbye. Later turns
+    are a real conversation already in progress, so those still get the
+    normal reply-then-check treatment further down."""
+    reading = settings.get("reading_mode")
+
+    if reading:
+        print("[reading]")
+        ui_bridge.broadcast("reading")
+        user_text = ui_bridge.wait_for_text_input()
+        if not settings.get("power_on") or ui_bridge.is_interrupt_active() or not user_text:
+            return False
+    else:
+        print("[listening]")
+        ui_bridge.broadcast("listening")
+        audio = record.record_until_silence()
+        if not settings.get("power_on") or ui_bridge.is_interrupt_active() or audio.size == 0:
+            return False
+
+        print("[transcribing]")
+        user_text = stt.transcribe(audio)
+        if not settings.get("power_on") or ui_bridge.is_interrupt_active() or not user_text:
+            return False
+
     print(f"You said: {user_text}")
     ui_bridge.broadcast("listening", user_text=user_text)
 
+    if is_first_turn and is_end_phrase(user_text):
+        print("[end phrase on first turn] skipping LLM/TTS, straight back to idle")
+        return False
+
     print("[thinking]")
     ui_bridge.broadcast("loading", user_text=user_text)
-    reply = conversation.send(user_text)
-    if not settings.get("power_on"):
+    if settings.get("echo_mode"):
+        reply = user_text
+    else:
+        reply = conversation.send(user_text)
+    if not settings.get("power_on") or ui_bridge.is_interrupt_active():
         return False
     print(f"Alani: {reply}")
 
@@ -70,8 +111,12 @@ def run_turn(conversation: Conversation) -> bool:
     else:
         _pace_reading(reply)
 
-    if is_end_phrase(user_text):
-        print("[end phrase detected] wrapping up this session")
+    # should_end is always False in echo_mode (conversation.send() never
+    # ran, so no tool could have set it) — is_end_phrase(user_text) still
+    # applies there regardless, same as normal.
+    if is_end_phrase(user_text) or conversation.should_end:
+        reason = "end phrase" if is_end_phrase(user_text) else "end_conversation tool"
+        print(f"[{reason} detected] wrapping up this session")
         return False
 
-    return settings.get("power_on")
+    return settings.get("power_on") and not ui_bridge.is_interrupt_active()

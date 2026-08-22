@@ -12,16 +12,21 @@
   </div>
   <canvas id="scene"></canvas>
   <div id="status">Starting up...</div>
+  <input id="reading-input" class="hidden" type="text" placeholder="Type and press Enter..." autocomplete="off" />
 
   <input id="volume" type="range" min="0" max="1.5" step="0.05" value="1" title="Alani's volume" />
 
   <button id="settings-toggle" title="Settings">⋮</button>
+  <button id="reading-toggle-btn" title="Type instead of speak">I</button>
   <div id="settings-panel" class="hidden">
     <label>Input
       <select id="input-device"></select>
     </label>
     <label>Output
       <select id="output-device"></select>
+    </label>
+    <label>Voice
+      <select id="voice-select"></select>
     </label>
     <label>Text size
       <input id="text-size" type="range" min="9" max="34" step="1" value="13" />
@@ -32,6 +37,69 @@
     <button id="tts-btn" title="Voice replies">🔊</button>
     <button id="sleep-btn" title="Sleep mode">Z</button>
     <button id="power-btn" title="Power">⏻</button>
+    <button id="echo-btn" title="Echo mode: skip thinking, just repeat back">🦜</button>
+  </div>
+
+  <!-- "console add" — a manual, click-driven alternative to voice for
+       adding a reminder/event, only ever available while idle. See
+       app.js's goConsoleAdd()/goIdle() and main.py's on_command
+       handlers ("open_console"/"close_console"/"console_submit_*"). -->
+  <button id="console-add-btn" class="hidden" title="Add a reminder or event">+</button>
+  <div id="console-overlay" class="hidden">
+    <button id="console-close-btn" title="Close">✕</button>
+
+    <div id="console-grid" class="console-page">
+      <button class="console-tile" data-feature="reminder">
+        <span class="console-tile-icon">⏰</span>
+        <span>Reminder</span>
+      </button>
+      <button class="console-tile" data-feature="event">
+        <span class="console-tile-icon">📅</span>
+        <span>Event</span>
+      </button>
+    </div>
+
+    <form id="console-form-reminder" class="console-page hidden">
+      <button type="button" class="console-back">‹ Back</button>
+      <h2>New Reminder</h2>
+      <label>Text
+        <input id="cf-reminder-text" type="text" required maxlength="500" />
+      </label>
+      <label>Date &amp; time
+        <input id="cf-reminder-datetime" type="datetime-local" required />
+      </label>
+      <label>Database
+        <select id="cf-reminder-db"></select>
+      </label>
+      <label>Channel (optional, blank = DM)
+        <input id="cf-reminder-channel" type="text" placeholder="channel ID" />
+      </label>
+      <button type="submit" id="cf-reminder-submit">Add Reminder</button>
+      <div id="cf-reminder-status" class="console-status"></div>
+    </form>
+
+    <form id="console-form-event" class="console-page hidden">
+      <button type="button" class="console-back">‹ Back</button>
+      <h2>New Event</h2>
+      <label>Title
+        <input id="cf-event-title" type="text" required maxlength="500" />
+      </label>
+      <label class="console-checkbox-row">
+        <input id="cf-event-allday" type="checkbox" />
+        All day
+      </label>
+      <label>Start
+        <input id="cf-event-start" type="datetime-local" required />
+      </label>
+      <label id="cf-event-end-row">End
+        <input id="cf-event-end" type="datetime-local" />
+      </label>
+      <label>Database
+        <select id="cf-event-db"></select>
+      </label>
+      <button type="submit" id="cf-event-submit">Add Event</button>
+      <div id="cf-event-status" class="console-status"></div>
+    </form>
   </div>
 
   <script src="app.js"></script>

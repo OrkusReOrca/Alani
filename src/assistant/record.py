@@ -8,7 +8,7 @@ proves too twitchy in practice.
 import numpy as np
 import sounddevice as sd
 
-from . import settings
+from . import settings, ui_bridge
 
 SAMPLE_RATE = 16000
 FRAME_MS = 30
@@ -30,7 +30,7 @@ def record_until_silence() -> np.ndarray:
     with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32", device=device) as stream:
         max_frames = int(MAX_DURATION_S * 1000 / FRAME_MS)
         for _ in range(max_frames):
-            if not settings.get("power_on"):
+            if not settings.get("power_on") or ui_bridge.is_interrupt_active():
                 return np.array([], dtype="float32")  # instant abort, see main.py
 
             chunk, _overflowed = stream.read(FRAME_SAMPLES)

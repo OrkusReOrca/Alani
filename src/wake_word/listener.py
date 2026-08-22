@@ -7,12 +7,15 @@ openwakeword.com/train), this falls back to the bundled "hey_jarvis"
 model so the pipeline is runnable end-to-end today. Drop a trained
 hey_alani.onnx into models/ to switch over automatically.
 
-Supports two control states, both driven by assistant.settings (which the
-UI's Z/power buttons write to):
-- sleep_mode: the mic stream is closed entirely (not just ignored) — no
-  audio capture happening at all, near-zero CPU/GPU, and a clearer privacy
-  story than "still recording but discarding it". Reopens automatically
-  once sleep_mode clears.
+Supports three control states:
+- sleep_mode (assistant.settings, UI's Z button): the mic stream is
+  closed entirely (not just ignored) — no audio capture happening at
+  all, near-zero CPU/GPU, and a clearer privacy story than "still
+  recording but discarding it". Reopens automatically once it clears.
+- console_active (assistant.ui_bridge, the "console add" manual-entry
+  UI): same full mic-stream closure as sleep_mode, so a wake word can't
+  start a voice turn underneath an open add-reminder/add-event form.
+  Reopens automatically once the form closes.
 - power_on: exits this function entirely when false; main.py starts a
   fresh thread when power comes back on.
 """
@@ -24,7 +27,7 @@ import openwakeword
 import sounddevice as sd
 from openwakeword.model import Model
 
-from assistant import settings
+from assistant import settings, ui_bridge
 from assistant.config import CUSTOM_WAKE_WORD_PATH, FALLBACK_WAKE_WORD
 
 SAMPLE_RATE = 16000
@@ -61,8 +64,11 @@ def listen_for_wake_word(on_detected, on_ready=None) -> None:
     if on_ready:
         on_ready()
 
+    def _should_listen():
+        return settings.get("power_on") and not settings.get("sleep_mode") and not ui_bridge.is_console_active()
+
     while settings.get("power_on"):
-        if settings.get("sleep_mode"):
+        if settings.get("sleep_mode") or ui_bridge.is_console_active():
             time.sleep(SLEEP_POLL_S)
             continue
 
@@ -70,7 +76,7 @@ def listen_for_wake_word(on_detected, on_ready=None) -> None:
         print("[wake word] listening...")
         try:
             with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16", device=device) as stream:
-                while settings.get("power_on") and not settings.get("sleep_mode"):
+                while _should_listen():
                     chunk, _overflowed = stream.read(CHUNK_SAMPLES)
                     audio = chunk[:, 0].astype(np.int16)
                     prediction = model.predict(audio)
@@ -78,7 +84,7 @@ def listen_for_wake_word(on_detected, on_ready=None) -> None:
                     if prediction[wakeword_name] > DETECTION_THRESHOLD:
                         model.reset()
                         on_detected()
-                        if not (settings.get("power_on") and not settings.get("sleep_mode")):
+                        if not _should_listen():
                             break
                         print("[wake word] listening...")
         except Exception as e:

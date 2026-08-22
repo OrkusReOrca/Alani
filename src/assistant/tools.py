@@ -9,7 +9,7 @@ from datetime import datetime
 
 import requests
 
-from . import github_bridge
+from . import discord_bridge, github_bridge, web_search
 
 
 def roll_dice(sides: int = 6, count: int = 1) -> str:
@@ -71,6 +71,42 @@ def get_weather(location: str) -> str:
 
 def trigger_alani_bot_workflow(workflow_name: str) -> str:
     return github_bridge.trigger_workflow(workflow_name)
+
+
+def set_reminder(text: str, remind_at: str) -> str:
+    return discord_bridge.set_reminder(text, remind_at)
+
+
+def list_reminders() -> str:
+    return discord_bridge.list_reminders()
+
+
+def delete_reminder(reminder_id: int) -> str:
+    return discord_bridge.delete_reminder(reminder_id)
+
+
+def add_calendar_event(title: str, start: str, end: str | None = None, all_day: bool = False) -> str:
+    return discord_bridge.add_event(title, start, end, all_day)
+
+
+def list_calendar_events() -> str:
+    return discord_bridge.list_events()
+
+
+def delete_calendar_event(event_id: int) -> str:
+    return discord_bridge.delete_event(event_id)
+
+
+def search_web(query: str) -> str:
+    return web_search.search_web(query)
+
+
+def end_conversation() -> str:
+    """Doesn't actually do anything itself — llm.py's Conversation.send()
+    special-cases this tool's name (same way it special-cases search_web
+    for the UI state) to set self.should_end, which pipeline.py checks
+    after the reply is spoken to decide whether to keep listening."""
+    return "Ending the conversation now."
 
 
 # OpenAI-style tool schemas — Ollama's chat() `tools` param expects this shape.
@@ -144,6 +180,157 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_reminder",
+            "description": (
+                "Set a reminder that will be delivered later by DM on Discord. "
+                "Use this whenever the user asks to be reminded of something."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "What to be reminded about"},
+                    "remind_at": {
+                        "type": "string",
+                        "description": (
+                            "When to deliver it, 24-hour format YYYY-MM-DDTHH:MM, "
+                            "Indochina Time (UTC+7) — resolve relative times ('tomorrow', "
+                            "'in an hour') against the current date/time given above"
+                        ),
+                    },
+                },
+                "required": ["text", "remind_at"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_reminders",
+            "description": "List all currently pending reminders, with their IDs, times, and text.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_reminder",
+            "description": (
+                "Delete/cancel a pending reminder by its ID. Use list_reminders first if you "
+                "don't already know the ID from earlier in the conversation."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reminder_id": {"type": "integer", "description": "The reminder's ID, from list_reminders"},
+                },
+                "required": ["reminder_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_calendar_event",
+            "description": (
+                "Add a calendar event with a start time — for things that happen "
+                "at a specific time, as opposed to a one-off reminder. "
+                "Also shows up on the user's actual Google Calendar automatically."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "The event's title"},
+                    "start": {
+                        "type": "string",
+                        "description": (
+                            "24-hour format YYYY-MM-DDTHH:MM, Indochina Time (UTC+7) — year "
+                            "and/or month may be omitted, assumed to be the current year/month "
+                            "— resolve relative times against the current date/time given above"
+                        ),
+                    },
+                    "end": {
+                        "type": "string",
+                        "description": (
+                            "24-hour format YYYY-MM-DDTHH:MM, Indochina Time (UTC+7), must be "
+                            "after start. Optional — if omitted, the event defaults to a "
+                            "1-hour duration. Ignored if all_day is true."
+                        ),
+                    },
+                    "all_day": {
+                        "type": "boolean",
+                        "description": "True to make this an all-day event instead of a timed one (end is ignored)",
+                    },
+                },
+                "required": ["title", "start"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_calendar_events",
+            "description": "List all upcoming calendar events, with their IDs, times, and titles.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_calendar_event",
+            "description": (
+                "Delete/cancel a calendar event by its ID. Use list_calendar_events first if you "
+                "don't already know the ID from earlier in the conversation."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "event_id": {"type": "integer", "description": "The event's ID, from list_calendar_events"},
+                },
+                "required": ["event_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_web",
+            "description": (
+                "Search the web for current information — news, facts, "
+                "prices, anything beyond your own knowledge or the other "
+                "tools here. Use whenever the user asks something you "
+                "don't already know or that could have changed recently."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The search query"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "end_conversation",
+            "description": (
+                "Call this whenever the user signals the conversation is "
+                "wrapping up — not just literal goodbyes, but also things "
+                "like 'that covers everything', 'I'm all set', 'appreciate "
+                "it', 'that answers my question', or any closing remark "
+                "that means they're satisfied and about to stop talking. "
+                "If you're about to reply with something like 'let me know "
+                "if you need anything else' or 'have a great day', that's "
+                "usually a strong sign you should be calling this tool "
+                "right now instead of just saying it. This ends the "
+                "session; you'll stop listening after your reply."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
 ]
 
 TOOL_FUNCTIONS = {
@@ -152,4 +339,12 @@ TOOL_FUNCTIONS = {
     "get_current_time": get_current_time,
     "get_weather": get_weather,
     "trigger_alani_bot_workflow": trigger_alani_bot_workflow,
+    "set_reminder": set_reminder,
+    "list_reminders": list_reminders,
+    "delete_reminder": delete_reminder,
+    "add_calendar_event": add_calendar_event,
+    "list_calendar_events": list_calendar_events,
+    "delete_calendar_event": delete_calendar_event,
+    "search_web": search_web,
+    "end_conversation": end_conversation,
 }

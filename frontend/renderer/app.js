@@ -22,6 +22,7 @@ const COLOR_GRAY = 0x9e9e9e;
 
 const canvas = document.getElementById("scene");
 const statusEl = document.getElementById("status");
+const transcriptEl = document.getElementById("transcript");
 const transcriptTextEl = document.getElementById("transcript-text");
 const transcriptSpacerEl = document.getElementById("transcript-spacer");
 const volumeEl = document.getElementById("volume");
@@ -29,10 +30,33 @@ const settingsToggleEl = document.getElementById("settings-toggle");
 const settingsPanelEl = document.getElementById("settings-panel");
 const inputDeviceEl = document.getElementById("input-device");
 const outputDeviceEl = document.getElementById("output-device");
+const voiceSelectEl = document.getElementById("voice-select");
 const textSizeEl = document.getElementById("text-size");
 const ttsBtnEl = document.getElementById("tts-btn");
 const sleepBtnEl = document.getElementById("sleep-btn");
 const powerBtnEl = document.getElementById("power-btn");
+const echoBtnEl = document.getElementById("echo-btn");
+const readingToggleBtnEl = document.getElementById("reading-toggle-btn");
+const readingInputEl = document.getElementById("reading-input");
+
+const consoleAddBtnEl = document.getElementById("console-add-btn");
+const consoleOverlayEl = document.getElementById("console-overlay");
+const consoleCloseBtnEl = document.getElementById("console-close-btn");
+const consoleGridEl = document.getElementById("console-grid");
+const consoleFormReminderEl = document.getElementById("console-form-reminder");
+const consoleFormEventEl = document.getElementById("console-form-event");
+const cfReminderTextEl = document.getElementById("cf-reminder-text");
+const cfReminderDatetimeEl = document.getElementById("cf-reminder-datetime");
+const cfReminderDbEl = document.getElementById("cf-reminder-db");
+const cfReminderChannelEl = document.getElementById("cf-reminder-channel");
+const cfReminderStatusEl = document.getElementById("cf-reminder-status");
+const cfEventTitleEl = document.getElementById("cf-event-title");
+const cfEventAlldayEl = document.getElementById("cf-event-allday");
+const cfEventStartEl = document.getElementById("cf-event-start");
+const cfEventEndEl = document.getElementById("cf-event-end");
+const cfEventEndRowEl = document.getElementById("cf-event-end-row");
+const cfEventDbEl = document.getElementById("cf-event-db");
+const cfEventStatusEl = document.getElementById("cf-event-status");
 
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
@@ -53,6 +77,7 @@ function resizeToCanvas() {
   camera.updateProjectionMatrix();
   updateCornerPositions();
   updateTranscriptSpacer();
+  updateTranscriptHeight();
 }
 window.addEventListener("resize", resizeToCanvas);
 
@@ -161,10 +186,12 @@ function makeGoldStarSprite() {
 
 const starSprite = makeGoldStarSprite();
 const hourglassSprite = makeEmojiSprite("⌛");
+const magnifierSprite = makeEmojiSprite("🔍");
 const heartSprite = makeEmojiSprite("❤️");
 hourglassSprite.visible = false;
+magnifierSprite.visible = false;
 heartSprite.visible = false;
-scene.add(starSprite, hourglassSprite, heartSprite);
+scene.add(starSprite, hourglassSprite, magnifierSprite, heartSprite);
 
 // ---------- Corner docking (star -> top-right, A -> bottom-right) ----------
 // The camera's vertical FOV is fixed, so the visible height at z=0 never
@@ -200,7 +227,10 @@ function cornerXA() {
 }
 
 function activeIconSprite() {
-  return starSprite.visible ? starSprite : hourglassSprite.visible ? hourglassSprite : heartSprite;
+  if (starSprite.visible) return starSprite;
+  if (hourglassSprite.visible) return hourglassSprite;
+  if (magnifierSprite.visible) return magnifierSprite;
+  return heartSprite;
 }
 
 // Called on resize (and right after any dock transition) so a window
@@ -239,8 +269,34 @@ function updateTranscriptSpacer() {
   transcriptSpacerEl.style.height = `${size}px`;
 }
 
+// Caps #transcript's height so it can extend down to just above the A
+// glyph's docked corner (bottom-right) instead of the old fixed
+// 40%-of-window cutoff, which clipped long replies with nothing but
+// plain background below the cut. Deliberately max-height, not a fixed
+// height: #transcript is a real DOM element sitting on top of the WebGL
+// canvas (positioned elements always paint over non-positioned ones,
+// regardless of DOM order) — a fixed height reserves that whole box's
+// area, and with no `pointer-events` override, an EMPTY div still
+// occupies and intercepts clicks/hover over its full box, not just where
+// text visually is. That silently ate every click meant for the idle
+// bar underneath (which sits well within that box), since the div was
+// there — invisibly, but still catching the mouse — even with nothing
+// in it. max-height means the box shrinks to fit its actual content
+// (~0 height when empty, i.e. idle), so it only ever covers real text,
+// and still caps + scrolls (CSS overflow-y: auto) once a reply is long
+// enough to need it.
+function updateTranscriptHeight() {
+  const canvasH = canvas.clientHeight;
+  if (!canvasH) return;
+  const pxPerWorldUnit = canvasH / (2 * VERT_HALF_HEIGHT_AT_Z0);
+  const aTopEdgePx = (VERT_HALF_HEIGHT_AT_Z0 - (-CORNER_Y_A - AGLYPH_DOCKED_HALF_HEIGHT)) * pxPerWorldUnit;
+  const pad = 10;
+  const height = Math.max(0, Math.round(aTopEdgePx - TRANSCRIPT_TOP_PX - pad));
+  transcriptEl.style.maxHeight = `${height}px`;
+}
+
 // ---------- State ----------
-let mode = "starting"; // starting | idle | listening_big | listening | speaking | loading | done
+let mode = "starting"; // starting | idle | listening_big | listening | reading | speaking | loading | searching | done
 let orbitT = 0;
 let spinT = 0;
 let powerOn = true;
@@ -295,6 +351,7 @@ function goStarting() {
   aGlyph.material.opacity = 0;
   starSprite.visible = false;
   hourglassSprite.visible = false;
+  magnifierSprite.visible = false;
   heartSprite.visible = false;
 }
 
@@ -309,8 +366,86 @@ function goIdle() {
   gsap.to(aGlyph.material, { opacity: 0, duration: 0.5, onComplete: () => (aGlyph.visible = false) });
   gsap.to(starSprite.scale, { x: 0.55, y: 0.55, duration: 0.6 });
   hourglassSprite.visible = false;
+  magnifierSprite.visible = false;
   heartSprite.visible = false;
   starSprite.visible = powerOn; // frozen/hidden while powered off — see animate()
+  closeConsoleOverlay();
+}
+
+// "console add" — a manual, click-driven alternative to voice for adding
+// a reminder/event (see main.py's on_command("open_console")). Doesn't
+// touch the 3D scene/bar/sprites at all: the overlay is opaque and
+// covers the canvas entirely, so what's underneath is moot while it's up.
+function goConsoleAdd() {
+  mode = "console_add";
+  setStatus("Add to...");
+  consoleOverlayEl.classList.remove("hidden");
+  showConsolePage(consoleGridEl);
+}
+
+function showConsolePage(pageEl) {
+  for (const page of [consoleGridEl, consoleFormReminderEl, consoleFormEventEl]) {
+    page.classList.toggle("hidden", page !== pageEl);
+  }
+}
+
+// Hides the overlay and resets it back to the grid page, so the NEXT
+// open always starts there regardless of where a previous session left
+// off. Called both when the backend confirms "idle" (the normal path)
+// and instantly on the X-click itself (see the click handler below) —
+// harmless to call twice, this is idempotent.
+function closeConsoleOverlay() {
+  consoleOverlayEl.classList.add("hidden");
+  showConsolePage(consoleGridEl);
+}
+
+// Latest list from the backend's "databases" message — re-applied to
+// whichever form is opened next (see the .console-tile click handler).
+let lastDatabases = [{ name: "main", kind: "main" }];
+
+function populateDatabaseSelect(selectEl) {
+  selectEl.innerHTML = "";
+  for (const db of lastDatabases) {
+    const opt = document.createElement("option");
+    opt.value = db.name;
+    opt.textContent = db.kind === "main" ? "main" : `${db.name} (${db.kind === "user" ? "personal" : "server"})`;
+    selectEl.appendChild(opt);
+  }
+  selectEl.value = "main";
+}
+
+// Arrives once, shortly after "open_console" — refresh both selects if
+// either form happens to be the one currently showing (harmless no-op on
+// a hidden one; whichever form is opened next also re-populates itself
+// from lastDatabases anyway, see the .console-tile click handler below).
+function applyDatabases(msg) {
+  lastDatabases = msg.databases && msg.databases.length ? msg.databases : lastDatabases;
+  populateDatabaseSelect(cfReminderDbEl);
+  populateDatabaseSelect(cfEventDbEl);
+}
+
+// Arrives after a console_submit_* round-trip. Shows the result in
+// whichever form's status div matches `msg.kind`, then — only on success,
+// per the confirmed "return to grid" behavior — clears that form and
+// switches back to the grid after a short beat so the message is
+// actually readable first.
+function applyConsoleResult(msg) {
+  const statusEl = msg.kind === "reminder" ? cfReminderStatusEl : cfEventStatusEl;
+  statusEl.textContent = msg.message;
+  statusEl.classList.toggle("success", msg.success);
+  statusEl.classList.toggle("error", !msg.success);
+  if (!msg.success) return;
+  setTimeout(() => {
+    if (msg.kind === "reminder") {
+      consoleFormReminderEl.reset();
+    } else {
+      consoleFormEventEl.reset();
+      cfEventEndEl.disabled = false;
+    }
+    statusEl.textContent = "";
+    statusEl.classList.remove("success", "error");
+    showConsolePage(consoleGridEl);
+  }, 1200);
 }
 
 function goListeningBig() {
@@ -337,6 +472,7 @@ function goListeningBig() {
   gsap.to(starSprite.position, { x: cornerXIcon(), y: CORNER_Y_ICON, z: 0, duration: 0.6 });
   gsap.to(starSprite.scale, { x: 0.32, y: 0.32, duration: 0.6 });
   hourglassSprite.visible = false;
+  magnifierSprite.visible = false;
   heartSprite.visible = false;
   starSprite.visible = true;
 }
@@ -348,10 +484,43 @@ function dockAToCorner() {
 }
 
 function goListening(userText) {
-  if (mode === "listening_big" && userText) dockAToCorner();
+  if ((mode === "listening_big" || mode === "reading") && userText) dockAToCorner();
   mode = "listening";
   setStatus("Listening...");
   setTranscript(userText, "");
+}
+
+// Reading mode's equivalent of goListeningBig() — same visual (A glyph
+// grows in, star docks to the corner) since there's no "big vs small"
+// distinction that means anything for typed input the way it does for
+// voice (no partial-transcript moment to build up to). The actual typed
+// text lives in #reading-input, shown/focused here — see index.html/
+// style.css; it's positioned where #status normally shows text, so what
+// you type appears "in the loading spot" as you type it.
+function goReading() {
+  mode = "reading";
+  isADocked = false;
+  setStatus("");
+  if (bar.visible) {
+    gsap.to(bar.material, { opacity: 0, duration: 0.4, onComplete: () => (bar.visible = false) });
+  }
+  updateAGlyphColor();
+  aGlyph.visible = true;
+  const big = aScale(1.3);
+  aGlyph.scale.set(big.x, big.y, big.z);
+  aGlyph.position.set(0, 0, 0.3);
+  gsap.to(aGlyph.material, { opacity: 1, duration: 0.5 });
+  gsap.to(aGlyph.scale, { ...aScale(1), duration: 0.6, ease: "back.out(1.7)" });
+  gsap.to(starSprite.position, { x: cornerXIcon(), y: CORNER_Y_ICON, z: 0, duration: 0.6 });
+  gsap.to(starSprite.scale, { x: 0.32, y: 0.32, duration: 0.6 });
+  hourglassSprite.visible = false;
+  magnifierSprite.visible = false;
+  heartSprite.visible = false;
+  starSprite.visible = true;
+
+  readingInputEl.value = "";
+  readingInputEl.classList.remove("hidden");
+  readingInputEl.focus();
 }
 
 function goSpeaking(userText, replyText) {
@@ -367,14 +536,29 @@ function goLoading() {
   setStatus("Loading...");
   starSprite.visible = false;
   hourglassSprite.visible = true;
+  magnifierSprite.visible = false;
   hourglassSprite.position.copy(starSprite.position);
   hourglassSprite.scale.copy(starSprite.scale);
+}
+
+// Shown while a search_web tool call is actually in flight (see llm.py's
+// Conversation.send()) — a distinct icon/status from generic "Loading..."
+// so it's clear Alani is reaching out to the internet, not just thinking.
+function goSearching() {
+  mode = "searching";
+  setStatus("Searching...");
+  starSprite.visible = false;
+  hourglassSprite.visible = false;
+  magnifierSprite.visible = true;
+  magnifierSprite.position.copy(starSprite.position);
+  magnifierSprite.scale.copy(starSprite.scale);
 }
 
 function goDone() {
   mode = "done";
   setStatus("Done");
   hourglassSprite.visible = false;
+  magnifierSprite.visible = false;
   heartSprite.visible = true;
   heartSprite.position.copy(starSprite.position);
   heartSprite.scale.copy(starSprite.scale);
@@ -383,10 +567,17 @@ function goDone() {
 
 function applyServerState(msg) {
   const { state, user_text = "", reply_text = "" } = msg;
+  if (state !== "reading") readingInputEl.classList.add("hidden");
+  // The "+" button only ever makes sense to click from idle — every
+  // other state (including console_add itself, once open) hides it.
+  consoleAddBtnEl.classList.toggle("hidden", state !== "idle");
   if (state === "starting") return goStarting();
   if (state === "idle") return goIdle();
+  if (state === "reading") return goReading();
   if (state === "loading") return goLoading();
+  if (state === "searching") return goSearching();
   if (state === "done") return goDone();
+  if (state === "console_add") return goConsoleAdd();
   if (state === "speaking") return goSpeaking(user_text, reply_text);
   if (state === "listening") {
     if (!user_text && mode !== "listening") return goListeningBig();
@@ -402,12 +593,15 @@ function applySettings(s) {
   volumeEl.value = s.volume;
   if (inputDeviceEl.dataset.loaded) inputDeviceEl.value = s.input_device ?? "";
   if (outputDeviceEl.dataset.loaded) outputDeviceEl.value = s.output_device ?? "";
+  if (voiceSelectEl.dataset.loaded) voiceSelectEl.value = s.voice_name;
   textSizeEl.value = s.text_size;
   transcriptTextEl.style.fontSize = `${s.text_size}px`;
 
   sleepBtnEl.classList.toggle("active", sleepMode);
   powerBtnEl.classList.toggle("off", !powerOn);
   ttsBtnEl.classList.toggle("off", !s.tts_enabled);
+  echoBtnEl.classList.toggle("active", s.echo_mode);
+  readingToggleBtnEl.classList.toggle("active", s.reading_mode);
 
   // Power off must cut over instantly even mid-task — don't wait for the
   // backend to finish its current turn and broadcast "idle" itself.
@@ -439,6 +633,17 @@ function applyDevices(msg) {
   fillSelect(outputDeviceEl, msg.outputs);
 }
 
+function applyVoices(msg) {
+  voiceSelectEl.innerHTML = "";
+  for (const v of msg.voices) {
+    const opt = document.createElement("option");
+    opt.value = v.value;
+    opt.textContent = v.label;
+    voiceSelectEl.appendChild(opt);
+  }
+  voiceSelectEl.dataset.loaded = "1";
+}
+
 // ---------- WebSocket (backend connection) ----------
 let ws = null;
 
@@ -454,7 +659,10 @@ function connect() {
       if (msg.type === "state") applyServerState(msg);
       else if (msg.type === "settings") applySettings(msg);
       else if (msg.type === "devices") applyDevices(msg);
+      else if (msg.type === "voices") applyVoices(msg);
       else if (msg.type === "amplitude") ampTarget = msg.value;
+      else if (msg.type === "databases") applyDatabases(msg);
+      else if (msg.type === "console_result") applyConsoleResult(msg);
     } catch (e) {
       console.error("bad message from backend", e);
     }
@@ -473,15 +681,136 @@ outputDeviceEl.addEventListener("change", () => {
   const value = outputDeviceEl.value === "" ? null : parseInt(outputDeviceEl.value, 10);
   send({ type: "set_output_device", value });
 });
+voiceSelectEl.addEventListener("change", () => {
+  send({ type: "set_voice", value: voiceSelectEl.value });
+});
 textSizeEl.addEventListener("input", () => {
   const value = parseInt(textSizeEl.value, 10);
   transcriptTextEl.style.fontSize = `${value}px`; // live preview, no waiting for the backend round-trip
   send({ type: "set_text_size", value });
 });
+// Click the top-right icon (star/hourglass/heart, whichever is currently
+// showing) to cut the current turn short and return to idle immediately.
+// The backend is the one that actually decides whether this is allowed
+// (it won't interrupt a cloud/internet-dependent task once those exist —
+// see ui_bridge.is_cloud_task_active()) — this just detects the click and
+// asks; it does NOT flip the UI to idle itself, since that's not this
+// click's call to make.
+const raycaster = new THREE.Raycaster();
+const pointerNDC = new THREE.Vector2();
+
+function pointerToNDC(event) {
+  const rect = canvas.getBoundingClientRect();
+  pointerNDC.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointerNDC.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+}
+
+function iconAtPointer(event) {
+  pointerToNDC(event);
+  raycaster.setFromCamera(pointerNDC, camera);
+  const icon = activeIconSprite();
+  if (!icon.visible) return null;
+  return raycaster.intersectObject(icon).length > 0 ? icon : null;
+}
+
+// Clicking the idle bar starts a turn immediately, same as saying the
+// wake word — respects reading_mode just like a wake-word-triggered turn
+// does (the backend decides whether that means recording audio or
+// waiting for typed input; this click only means "start now").
+function barAtPointer(event) {
+  if (mode !== "idle" || !bar.visible) return false;
+  pointerToNDC(event);
+  raycaster.setFromCamera(pointerNDC, camera);
+  return raycaster.intersectObject(bar).length > 0;
+}
+
+canvas.addEventListener("click", (event) => {
+  if (iconAtPointer(event)) return send({ type: "force_idle" });
+  if (barAtPointer(event)) return send({ type: "force_wake" });
+});
+canvas.addEventListener("mousemove", (event) => {
+  canvas.style.cursor = iconAtPointer(event) || barAtPointer(event) ? "pointer" : "default";
+});
+
 settingsToggleEl.addEventListener("click", () => settingsPanelEl.classList.toggle("hidden"));
 ttsBtnEl.addEventListener("click", () => send({ type: "toggle_tts" }));
 sleepBtnEl.addEventListener("click", () => send({ type: "toggle_sleep" }));
 powerBtnEl.addEventListener("click", () => send({ type: "toggle_power" }));
+echoBtnEl.addEventListener("click", () => send({ type: "toggle_echo" }));
+readingToggleBtnEl.addEventListener("click", () => send({ type: "toggle_reading_mode" }));
+readingInputEl.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  const value = readingInputEl.value.trim();
+  if (!value) return;
+  send({ type: "text_input", value });
+  readingInputEl.value = "";
+});
+
+// ---------- "console add" wiring ----------
+// Same source-of-truth convention as force_wake/force_idle above: the "+"
+// click just asks the backend to open — the overlay itself only actually
+// shows once applyServerState() sees the "console_add" state broadcast
+// back (see goConsoleAdd()).
+consoleAddBtnEl.addEventListener("click", () => send({ type: "open_console" }));
+
+// Closing has no rejection case (unlike force_idle's cloud-task guard),
+// so there's no reason to wait on the round-trip here specifically —
+// hide immediately, and let the backend's followup "idle" broadcast just
+// confirm/re-run goIdle() (harmless if already hidden).
+consoleCloseBtnEl.addEventListener("click", () => {
+  closeConsoleOverlay();
+  send({ type: "close_console" });
+});
+
+for (const tile of document.querySelectorAll(".console-tile")) {
+  tile.addEventListener("click", () => {
+    if (tile.dataset.feature === "reminder") {
+      populateDatabaseSelect(cfReminderDbEl);
+      showConsolePage(consoleFormReminderEl);
+    } else {
+      populateDatabaseSelect(cfEventDbEl);
+      showConsolePage(consoleFormEventEl);
+    }
+  });
+}
+
+for (const backBtn of document.querySelectorAll(".console-back")) {
+  backBtn.addEventListener("click", () => showConsolePage(consoleGridEl));
+}
+
+// All-day events ignore the end time entirely (see discord_bridge.py's
+// add_event) — disabling the field instead of hiding it keeps the form's
+// layout stable while still making clear it won't be sent.
+cfEventAlldayEl.addEventListener("change", () => {
+  cfEventEndEl.disabled = cfEventAlldayEl.checked;
+});
+
+consoleFormReminderEl.addEventListener("submit", (event) => {
+  event.preventDefault();
+  cfReminderStatusEl.textContent = "";
+  cfReminderStatusEl.classList.remove("success", "error");
+  send({
+    type: "console_submit_reminder",
+    text: cfReminderTextEl.value.trim(),
+    remindAt: cfReminderDatetimeEl.value,
+    database: cfReminderDbEl.value,
+    channelId: cfReminderChannelEl.value.trim(),
+  });
+});
+
+consoleFormEventEl.addEventListener("submit", (event) => {
+  event.preventDefault();
+  cfEventStatusEl.textContent = "";
+  cfEventStatusEl.classList.remove("success", "error");
+  send({
+    type: "console_submit_event",
+    title: cfEventTitleEl.value.trim(),
+    start: cfEventStartEl.value,
+    end: cfEventAlldayEl.checked ? "" : cfEventEndEl.value,
+    allDay: cfEventAlldayEl.checked,
+    database: cfEventDbEl.value,
+  });
+});
 
 // ---------- Animation loop ----------
 function animate() {
@@ -499,8 +828,7 @@ function animate() {
   } else if (mode !== "idle") {
     // star/hourglass/heart spin slowly once docked in the corner
     spinT += 0.02;
-    const activeSprite = starSprite.visible ? starSprite : hourglassSprite.visible ? hourglassSprite : heartSprite;
-    activeSprite.material.rotation = spinT;
+    activeIconSprite().material.rotation = spinT;
   }
   // powered off + idle: star frozen/hidden, bar gray, nothing animates — intentional
 

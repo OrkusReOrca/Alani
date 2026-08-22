@@ -42,8 +42,8 @@ cp .env.example .env
 
 Requires:
 - [Ollama](https://ollama.com) installed and running, with a model pulled:
-  `ollama pull qwen2.5:7b-instruct` (default in `.env.example` — see that
-  file to use a different model)
+  `ollama pull qwen3:8b` (default in `.env.example` — see that file to
+  use a different model)
 - An NVIDIA GPU for real-time performance (developed against an RTX 3060 Ti,
   8GB VRAM); CPU-only will work but be much slower
 
