@@ -91,6 +91,6 @@ implemented since this PC isn't always running.
 
 ## License
 
-Copyright (c) 2026 OrkusReOrca. **All rights reserved.** The source is public
+Copyright (c) 2026 Kunanon Thappawong (OrkusReOrca). **All rights reserved.** The source is public
 for viewing only; no permission is granted to use, copy, modify, or
 redistribute it. See [LICENSE](LICENSE).
