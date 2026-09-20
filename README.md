@@ -88,3 +88,9 @@ authenticated on this machine) to trigger workflows in Alani-Bot on
 demand — e.g. "Alani, refresh the jam tracks now" instead of waiting for
 its schedule. One-directional (local triggers cloud); the reverse isn't
 implemented since this PC isn't always running.
+
+## License
+
+Copyright (c) 2026 OrkusReOrca. **All rights reserved.** The source is public
+for viewing only; no permission is granted to use, copy, modify, or
+redistribute it. See [LICENSE](LICENSE).
